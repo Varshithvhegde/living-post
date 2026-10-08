@@ -1,0 +1,67 @@
+name: Weave comments
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Read comments and write a preview, without updating DEV or the ledger"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: living-post-weave
+  cancel-in-progress: false
+
+jobs:
+  weave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+      DEV_API_KEY: ${{ secrets.DEV_API_KEY }}
+      INCEPTION_API_KEY: ${{ secrets.INCEPTION_API_KEY }}
+      ARTICLE_ID: ${{ secrets.ARTICLE_ID }}
+      FREEZE_AT: ${{ vars.FREEZE_AT }}
+      DEV_BASE_URL: https://dev.to/api
+      INCEPTION_BASE_URL: https://api.inceptionlabs.ai/v1
+      MERCURY_MODEL: mercury-2.5
+      AUTHOR_USERNAME: varshithvhegde
+      SKIP_AUTHOR: "true"
+      MAX_COMMENTS_PER_RUN: "3"
+      MAX_BOOKKEEPING_PER_RUN: "20"
+      MAX_COMMENT_CHARS: "600"
+      MIN_COMMENT_CHARS: "12"
+      MAX_PROSE_CHARS: "24000"
+      MAX_LIQUID_TAGS: "15"
+      FREEZE_AFTER: "200"
+      MAX_RETRIES: "4"
+      RETRY_BASE_MS: "800"
+      MODEL_ATTEMPTS: "3"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test
+        run: node --test
+      - name: Weave
+        if: env.ARTICLE_ID != ''
+        run: node src/cli.js run
+      - name: Waiting for secrets
+        if: env.ARTICLE_ID == ''
+        run: echo "Add repository secrets DEV_API_KEY, INCEPTION_API_KEY, and ARTICLE_ID. The cron weaves once ARTICLE_ID is set."
+      - name: Save ledger
+        if: env.ARTICLE_ID != '' && env.DRY_RUN != '1'
+        run: |
+          git add state/ledger.json
+          if git diff --cached --quiet; then
+            echo "Ledger unchanged"
+            exit 0
+          fi
+          git -c user.name="living-post" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Record addressed comments"
+          git push
