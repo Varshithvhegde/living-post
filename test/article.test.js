@@ -215,9 +215,9 @@ test("only three story rewrites happen per run", async () => {
   assert.equal(result.results.some((row) => row.id === "four"), false);
 });
 
-test("mentions become plain names, including an email left alone", () => {
+test("known mentions are removed from the story and an email is left alone", () => {
   const names = new Map([["csm18", "csm"]]);
-  assert.equal(stripMentions("from @csm18 and editor@example.com", names), "from csm and editor@example.com");
+  assert.equal(stripMentions("from @csm18 and editor@example.com", names), "from and editor@example.com");
   assert.equal(stripMentions("hello @unknown", names), "hello unknown");
 });
 
@@ -249,7 +249,7 @@ test("an existing mention is saved without waiting for a new comment", async () 
   assert.equal(result.modelCalls, 0);
   assert.equal(published.length, 1);
   assert.doesNotMatch(published[0], /@csm18/);
-  assert.match(splitArticle(published[0]).prose, /bell rang for csm/);
+  assert.match(splitArticle(published[0]).prose, /The bell rang for\./);
   assert.match(published[0], /\| csm \|/);
 });
 
@@ -278,13 +278,13 @@ test("a changelog sentence is sent back to the model", async () => {
       return {
         decision: "weave",
         reason: "scene",
-        prose: "A man lived in the jungle. Monkey D Luffy stopped where the light failed.",
+        prose: "A man lived in the jungle, where the path had already given up.",
       };
     },
   });
   assert.equal(calls, 2);
   assert.equal(result.action, "woven");
-  assert.doesNotMatch(result.prose, /added a note/);
+  assert.doesNotMatch(result.prose, /added a note|Monkey D Luffy/);
 });
 
 test("the comment log is rewritten into one scene", async () => {
@@ -340,8 +340,8 @@ test("the comment log is rewritten into one scene", async () => {
         decision: "weave",
         reason: "rewrote the scene",
         prose: [
-          "csm set the microphone down and tapped it once. The click came back softer than his hand.",
-          "A man lived in the jungle, past the place where the path quit. Monkey D Luffy had walked far enough to know the trees were keeping him.",
+          "A microphone answered once, and the empty room kept the sound.",
+          "Past the last of the path, a man lived in the jungle, and the trees had been waiting.",
         ].join("\n\n"),
       };
     },
@@ -351,9 +351,9 @@ test("the comment log is rewritten into one scene", async () => {
   assert.equal(result.polished, true);
   assert.equal(published.length, 1);
   const prose = splitArticle(published[0]).prose;
-  assert.match(prose, /csm set the microphone/);
-  assert.match(prose, /Monkey D Luffy/);
-  assert.doesNotMatch(prose, /added a note|mic testing!|This article started/);
+  assert.match(prose, /microphone answered once/);
+  assert.match(prose, /man lived in the jungle/);
+  assert.doesNotMatch(prose, /added a note|mic testing!|This article started|\bcsm\b|Luffy/);
 });
 
 test("a mic check the model calls spam is still woven", async () => {

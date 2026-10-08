@@ -3,7 +3,7 @@ import test from "node:test";
 import { HttpError } from "../src/errors.js";
 import { requestJson } from "../src/http.js";
 import { createDevClient } from "../src/devto.js";
-import { createMercury } from "../src/mercury.js";
+import { buildMessages, createMercury } from "../src/mercury.js";
 
 function jsonResponse(body, { status = 200, headers = {} } = {}) {
   return {
@@ -69,6 +69,37 @@ test("comment pages stop when the next page repeats ids", async () => {
   const comments = await dev.getComments(42);
   assert.deepEqual(comments.map((comment) => comment.id_code), ["parent", "child"]);
   assert.equal(pages.length, 2);
+});
+
+test("Mercury is told what the post is and to leave reader names out", () => {
+  const single = buildMessages({
+    prose: "A room held its breath.",
+    comment: {
+      name: "Monkey D Luffy",
+      username: "oneluffychan",
+      text: "There was a man who lived in the jungle",
+    },
+    requiredTags: [],
+  });
+  assert.match(single[0].content, /living DEV Community post/);
+  assert.match(single[0].content, /canon log/);
+  assert.match(single[1].content, /canon log only/);
+  assert.match(single[1].content, /jungle/);
+  assert.doesNotMatch(single[1].content, /person in the scene/);
+
+  const scene = buildMessages({
+    prose: "A microphone answered.",
+    comment: {
+      beats: [
+        { name: "csm", username: "csm18", text: "Mic testing!" },
+        { name: "Monkey D Luffy", username: "oneluffychan", text: "There was a man who lived in the jungle" },
+      ],
+    },
+    requiredTags: [],
+  });
+  assert.match(scene[1].content, /Link the fragments/);
+  assert.match(scene[1].content, /Mic testing!/);
+  assert.match(scene[1].content, /These names stay out of the prose/);
 });
 
 test("Mercury falls back to json_object when json_schema is rejected", async () => {

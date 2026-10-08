@@ -11,7 +11,7 @@ export const OPENING_PROSE = [
 
 export const RULES = `## Add a line
 
-Leave a comment. Every 5 minutes, a job reads the new ones and asks [Mercury 2.5](https://docs.inceptionlabs.ai/get-started/models) to weave them into the story above.
+Leave a comment. Every 5 minutes, a job reads the new ones and asks [Mercury 2.5](https://docs.inceptionlabs.ai/get-started/models) to weave them into the story above. Your name stays in the log. The story links what you wrote.
 
 Limits, so this stays a story:
 
@@ -131,9 +131,10 @@ const MENTION = /(?<![A-Za-z0-9_])@([A-Za-z0-9_]{2,30})\b/g;
 
 export function stripMentions(text, namesByUsername = new Map()) {
   MENTION.lastIndex = 0;
-  return String(text ?? "").replace(MENTION, (_match, username) => {
-    return namesByUsername.get(username.toLowerCase()) || username;
-  });
+  return String(text ?? "")
+    .replace(MENTION, (_match, username) => (namesByUsername.has(username.toLowerCase()) ? "" : username))
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1");
 }
 
 export function nameMapFrom(comments) {
@@ -207,7 +208,46 @@ function storyBeats(prepared, ledger) {
   );
   return prepared
     .filter((comment) => keep.has(comment.id) && comment.text)
-    .map((comment) => ({ name: comment.name || comment.username || "someone", text: comment.text }));
+    .map((comment) => ({
+      name: comment.name || "",
+      username: comment.username || "",
+      text: comment.text,
+    }));
+}
+
+export function forbiddenReaderNames(comment) {
+  const names = [];
+  const seen = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim();
+    const key = text.toLowerCase();
+    if (text.length < 2 || seen.has(key)) return;
+    seen.add(key);
+    names.push(text);
+  };
+  for (const item of [comment, ...(comment?.beats || [])]) {
+    const username = String(item?.username || "").trim();
+    const name = String(item?.name || "").trim();
+    const sameAsHandle = name.toLowerCase() === username.toLowerCase();
+    const plainHandle = sameAsHandle && !/\s/.test(name) && name === name.toLowerCase();
+    if (name && !plainHandle) add(name);
+    if (username.length >= 5) add(username);
+  }
+  return names;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function namesInProse(prose, names) {
+  const text = String(prose ?? "");
+  const errors = [];
+  for (const name of names) {
+    const pattern = new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(name)}(?![A-Za-z0-9_])`, "i");
+    if (pattern.test(text)) errors.push(`leave "${name}" out of the story and link the events`);
+  }
+  return errors;
 }
 
 export function storyProblems(prose) {
@@ -231,7 +271,7 @@ export function requiredTagsFor(prose, comment) {
   return [...new Set([...existing, ...incoming])];
 }
 
-export function validateProse(prose, { requiredTags, maxProseChars, maxLiquidTags, maxTagArgChars }) {
+export function validateProse(prose, { requiredTags, maxProseChars, maxLiquidTags, maxTagArgChars, forbiddenNames = [] }) {
   const errors = [];
   const text = String(prose ?? "").trim();
   if (!text) errors.push("prose is empty");
@@ -245,6 +285,7 @@ export function validateProse(prose, { requiredTags, maxProseChars, maxLiquidTag
   const missing = missingRequiredTags(text, requiredTags);
   for (const tag of missing) errors.push(`missing required liquid tag ${tag}`);
   errors.push(...storyProblems(text));
+  errors.push(...namesInProse(text, forbiddenNames));
   return errors;
 }
 
@@ -299,8 +340,9 @@ function proseWithComment(prose, comment, requiredTags) {
   return next.trim();
 }
 
-export async function weaveComment({ complete, prose, comment, requiredTags, config }) {
+export async function weaveComment({ complete, prose, comment, requiredTags, config, forbiddenNames = [] }) {
   const errors = [];
+  const blockedNames = [...forbiddenNames, ...forbiddenReaderNames(comment)];
   for (let attempt = 1; attempt <= config.modelAttempts; attempt += 1) {
     let result;
     try {
@@ -331,12 +373,9 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
       maxProseChars: config.maxProseChars,
       maxLiquidTags: config.maxLiquidTags,
       maxTagArgChars: config.maxTagArgChars,
+      forbiddenNames: blockedNames,
     });
     if (problems.length === 0) {
-      if ((comment.beats?.length || 0) > 1 && !String(result.prose).includes("\n\n")) {
-        errors.push("put a blank line between paragraphs, one paragraph for each person");
-        continue;
-      }
       return {
         action: "woven",
         reason,
@@ -400,7 +439,14 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     }
 
     const requiredTags = requiredTagsFor(prose, comment);
-    const outcome = await weaveComment({ complete, prose, comment, requiredTags, config });
+    const outcome = await weaveComment({
+      complete,
+      prose,
+      comment,
+      requiredTags,
+      config,
+      forbiddenNames: forbiddenReaderNames({ beats: prepared }),
+    });
     modelCalls += 1;
     if (outcome.action === "woven") prose = outcome.prose;
     nextLedger = markAddressed(
@@ -418,7 +464,8 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
   let polished = false;
   let ledgerDirty = false;
   const beats = storyBeats(prepared, nextLedger);
-  if (beats.length && storyProblems(prose).length && (nextLedger.polishAttempts || 0) < 3) {
+  const linked = storyProblems(prose).length > 0 || namesInProse(prose, forbiddenReaderNames({ beats })).length > 0;
+  if (beats.length && linked && (nextLedger.polishAttempts || 0) < 3) {
     ledgerDirty = true;
     const outcome = await weaveComment({
       complete,
@@ -434,6 +481,7 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
       },
       requiredTags: requiredTagsFor(prose, { tags: [] }),
       config,
+      forbiddenNames: forbiddenReaderNames({ beats }),
     });
     modelCalls += 1;
     if (outcome.action === "woven" && storyProblems(outcome.prose).length === 0) {

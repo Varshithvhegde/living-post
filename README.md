@@ -1,6 +1,6 @@
 # living-post
 
-A DEV post that starts as one sentence. GitHub Actions reads new comments, Mercury 2.5 weaves them into the story, and each comment id is recorded so the next run skips it.
+A DEV post that starts as one sentence. GitHub Actions reads new comments, Mercury 2.5 links them into one story, and each comment id is recorded so the next run skips it. Reader names stay in the canon log. They are not characters in the story.
 
 The article source keeps two regions the model is not allowed to touch: the rules, and an HTML comment listing every comment id that has already been addressed. If a run updates DEV and dies before it can commit `state/ledger.json`, the next run reads those ids back out of the article.
 
