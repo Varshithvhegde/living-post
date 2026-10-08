@@ -173,7 +173,7 @@ async function run() {
     console.log("Dry run. DEV was not updated and the ledger file was not changed.");
     return;
   }
-  if (result.changed) {
+  if (result.changed || result.ledgerDirty) {
     saveLedgerFile(result.ledger);
     console.log(`ledger: ${ledgerPath}`);
   } else {

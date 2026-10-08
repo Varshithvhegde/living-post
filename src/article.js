@@ -195,6 +195,30 @@ export function inspectComment(prepared, config, ledger) {
   return null;
 }
 
+function storyBeats(prepared, ledger) {
+  const keep = new Set(
+    ledger.entries
+      .filter((entry) => entry.action === "woven" || entry.action === "recovered")
+      .map((entry) => entry.id),
+  );
+  return prepared
+    .filter((comment) => keep.has(comment.id) && comment.text)
+    .map((comment) => ({ name: comment.name || comment.username || "someone", text: comment.text }));
+}
+
+export function storyProblems(prose) {
+  const text = String(prose ?? "");
+  const errors = [];
+  if (/\badded a note\b/i.test(text)) errors.push('write the event, not "added a note"');
+  if (/\b(left a comment|commented that|wrote that)\b/i.test(text)) {
+    errors.push("do not describe the comment; write the scene");
+  }
+  if (/\bthis article started\b/i.test(text)) errors.push("drop the framing sentence and write the scene");
+  if (/\bin one voice\b/i.test(text)) errors.push("drop the explanation of the experiment");
+  if (/mic testing!/i.test(text)) errors.push('turn "mic testing!" into an action, do not paste it');
+  return errors;
+}
+
 export function requiredTagsFor(prose, comment) {
   const existing = extractLiquidTags(prose).map((tag) => tag.raw);
   const incoming = comment.tags.map((tag) => tag.raw);
@@ -214,6 +238,7 @@ export function validateProse(prose, { requiredTags, maxProseChars, maxLiquidTag
   errors.push(...liquid.errors);
   const missing = missingRequiredTags(text, requiredTags);
   for (const tag of missing) errors.push(`missing required liquid tag ${tag}`);
+  errors.push(...storyProblems(text));
   return errors;
 }
 
@@ -225,7 +250,10 @@ export function fixtureComplete({ prose, comment, requiredTags }) {
       prose,
     };
   }
-  let next = `${prose.trim()}\n\n${comment.text.trim()}`;
+  const base = String(prose ?? "")
+    .replace(/This article started as one sentence\.[\s\S]*?one voice\./, "")
+    .trim();
+  let next = [base, comment.text.trim()].filter(Boolean).join("\n\n");
   for (const tag of requiredTags) {
     if (!next.includes(tag)) next += `\n\n${tag}`;
   }
@@ -377,6 +405,36 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     });
   }
 
+  let polished = false;
+  let ledgerDirty = false;
+  const beats = storyBeats(prepared, nextLedger);
+  if (beats.length && storyProblems(prose).length && (nextLedger.polishAttempts || 0) < 3) {
+    ledgerDirty = true;
+    const outcome = await weaveComment({
+      complete,
+      prose,
+      comment: {
+        id: "polish",
+        username: "",
+        name: "",
+        text: "Rewrite the scene.",
+        norm: "",
+        tags: [],
+        beats,
+      },
+      requiredTags: requiredTagsFor(prose, { tags: [] }),
+      config,
+    });
+    modelCalls += 1;
+    if (outcome.action === "woven" && storyProblems(outcome.prose).length === 0) {
+      prose = outcome.prose;
+      polished = true;
+      nextLedger = { ...nextLedger, polishAttempts: 0 };
+    } else {
+      nextLedger = { ...nextLedger, polishAttempts: (nextLedger.polishAttempts || 0) + 1 };
+    }
+  }
+
   prose = stripMentions(prose, names);
   nextLedger = {
     ...nextLedger,
@@ -385,7 +443,7 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
       name: entry.name || names.get(String(entry.username || "").toLowerCase()) || entry.username,
     })),
   };
-  const changed = results.length > 0 || hadMentions;
+  const changed = results.length > 0 || hadMentions || polished;
   const nextFrozen = isFrozen(config, nextLedger, now);
   const nextMarkdown = renderArticle({
     frontMatter: article.frontMatter,
@@ -408,6 +466,8 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     modelCalls,
     results,
     ledger: nextLedger,
+    ledgerDirty,
+    polished,
     markdown: nextMarkdown,
     woven: wovenCount(nextLedger),
   };

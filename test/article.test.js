@@ -224,7 +224,7 @@ test("mentions become plain names, including an email left alone", () => {
 test("an existing mention is saved without waiting for a new comment", async () => {
   const published = [];
   const markdown = renderArticle({
-    prose: "It all began with a simple mic testing! from @csm18.",
+    prose: "The bell rang for @csm18.",
     entries: [{ id: "3gnf3", username: "csm18", action: "woven", reason: "kept", at: "", norm: "mic testing!" }],
   });
   const result = await runOnce({
@@ -249,8 +249,111 @@ test("an existing mention is saved without waiting for a new comment", async () 
   assert.equal(result.modelCalls, 0);
   assert.equal(published.length, 1);
   assert.doesNotMatch(published[0], /@csm18/);
-  assert.match(splitArticle(published[0]).prose, /from csm\./);
+  assert.match(splitArticle(published[0]).prose, /bell rang for csm/);
   assert.match(published[0], /\| csm \|/);
+});
+
+test("a changelog sentence is sent back to the model", async () => {
+  let calls = 0;
+  const result = await weaveComment({
+    config: baseConfig({ modelAttempts: 2 }),
+    prose: "The room was quiet.",
+    comment: {
+      id: "1",
+      username: "oneluffychan",
+      name: "Monkey D Luffy",
+      text: "There was a man who lived in the jungle",
+      tags: [],
+    },
+    requiredTags: [],
+    complete: async ({ errors }) => {
+      calls += 1;
+      if (errors.length === 0) {
+        return {
+          decision: "weave",
+          reason: "log",
+          prose: "Monkey D Luffy added a note about a man who lived in the jungle.",
+        };
+      }
+      return {
+        decision: "weave",
+        reason: "scene",
+        prose: "A man lived in the jungle. Monkey D Luffy stopped where the light failed.",
+      };
+    },
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.action, "woven");
+  assert.doesNotMatch(result.prose, /added a note/);
+});
+
+test("the comment log is rewritten into one scene", async () => {
+  const published = [];
+  const entries = [
+    { id: "3gnf3", username: "csm18", name: "csm", action: "woven", reason: "kept", at: "", norm: "mic testing!" },
+    {
+      id: "3gnfk",
+      username: "oneluffychan",
+      name: "Monkey D Luffy",
+      action: "woven",
+      reason: "kept",
+      at: "",
+      norm: "there was a man who lived in the jungle",
+    },
+  ];
+  const markdown = renderArticle({
+    prose: [
+      "This article started as one sentence. Everything after it was added by people who left a comment, then rewritten by Mercury so the story stays in one voice.",
+      "It all began with a simple mic testing! from csm.",
+      "Monkey D Luffy added a note about a man who lived in the jungle.",
+    ].join("\n\n"),
+    entries,
+  });
+  const result = await runOnce({
+    config: baseConfig({ articleId: "4815291", modelAttempts: 2 }),
+    markdown,
+    comments: [
+      {
+        id_code: "3gnf3",
+        created_at: "2026-10-08T04:20:37Z",
+        body_html: "<p>Mic testing!</p>",
+        user: { username: "csm18", name: "csm" },
+      },
+      {
+        id_code: "3gnfk",
+        created_at: "2026-10-08T04:34:10Z",
+        body_html: "<p>There was a man who lived in the jungle</p>",
+        user: { username: "oneluffychan", name: "Monkey D Luffy" },
+      },
+    ],
+    ledger: { version: 1, articleId: "4815291", entries },
+    complete: async ({ comment, errors }) => {
+      if (!comment.beats) return { decision: "reject", reason: "unexpected", prose: "" };
+      if (errors.length === 0) {
+        return {
+          decision: "weave",
+          reason: "still a log",
+          prose: "Monkey D Luffy added a note about a man who lived in the jungle.",
+        };
+      }
+      return {
+        decision: "weave",
+        reason: "rewrote the scene",
+        prose: [
+          "csm set the microphone down and tapped it once. The click came back softer than his hand.",
+          "A man lived in the jungle, past the place where the path quit. Monkey D Luffy had walked far enough to know the trees were keeping him.",
+        ].join("\n\n"),
+      };
+    },
+    publish: async (body) => published.push(body),
+  });
+
+  assert.equal(result.polished, true);
+  assert.equal(published.length, 1);
+  const prose = splitArticle(published[0]).prose;
+  assert.match(prose, /csm set the microphone/);
+  assert.match(prose, /Monkey D Luffy/);
+  assert.doesNotMatch(prose, /added a note|mic testing!|This article started/);
 });
 
 test("a mic check the model calls spam is still woven", async () => {
