@@ -48,7 +48,7 @@ Run it a second time. The same comment should produce `No new comments to addres
 
 ## GitHub Action
 
-The workflow is `.github/workflows/weave.yml`. It runs every 15 minutes and on demand. Add these repository secrets:
+The workflow is `.github/workflows/weave.yml`. It runs every 5 minutes and on demand. Add these repository secrets:
 
 - `DEV_API_KEY`
 - `INCEPTION_API_KEY`

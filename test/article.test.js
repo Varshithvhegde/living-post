@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   emptyArticle,
   fixtureComplete,
+  renderArticle,
   runOnce,
   splitArticle,
+  stripMentions,
   weaveComment,
 } from "../src/article.js";
 import { loadConfig } from "../src/config.js";
@@ -211,6 +213,44 @@ test("only three story rewrites happen per run", async () => {
   assert.equal(result.modelCalls, 3);
   assert.equal(result.stoppedEarly, true);
   assert.equal(result.results.some((row) => row.id === "four"), false);
+});
+
+test("mentions become plain names, including an email left alone", () => {
+  const names = new Map([["csm18", "csm"]]);
+  assert.equal(stripMentions("from @csm18 and editor@example.com", names), "from csm and editor@example.com");
+  assert.equal(stripMentions("hello @unknown", names), "hello unknown");
+});
+
+test("an existing mention is saved without waiting for a new comment", async () => {
+  const published = [];
+  const markdown = renderArticle({
+    prose: "It all began with a simple mic testing! from @csm18.",
+    entries: [{ id: "3gnf3", username: "csm18", action: "woven", reason: "kept", at: "", norm: "mic testing!" }],
+  });
+  const result = await runOnce({
+    config: baseConfig({ articleId: "4815291" }),
+    markdown,
+    comments: [{
+      id_code: "3gnf3",
+      created_at: "2026-10-08T04:20:37Z",
+      body_html: "<p>Mic testing!</p>",
+      user: { username: "csm18", name: "csm" },
+    }],
+    ledger: {
+      version: 1,
+      articleId: "4815291",
+      entries: [{ id: "3gnf3", username: "csm18", action: "woven", reason: "kept", at: "", norm: "mic testing!" }],
+    },
+    complete: fixtureComplete,
+    publish: async (body) => published.push(body),
+    dryRun: false,
+  });
+
+  assert.equal(result.modelCalls, 0);
+  assert.equal(published.length, 1);
+  assert.doesNotMatch(published[0], /@csm18/);
+  assert.match(splitArticle(published[0]).prose, /from csm\./);
+  assert.match(published[0], /\| csm \|/);
 });
 
 test("a mic check the model calls spam is still woven", async () => {

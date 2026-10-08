@@ -37,6 +37,7 @@ test("the seed article carries its own ledger comment", () => {
 test("a manual run writes to DEV unless dry_run is the string true", () => {
   const workflow = readFileSync(new URL("../.github/workflows/weave.yml", import.meta.url), "utf8");
   assert.match(workflow, /inputs\.dry_run == 'true'/);
+  assert.match(workflow, /cron: "\*\/5 \* \* \* \*"/);
 });
 
 test("freeze checks woven comments and the timestamp", () => {

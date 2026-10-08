@@ -11,7 +11,7 @@ export const OPENING_PROSE = [
 
 export const RULES = `## Add a line
 
-Leave a comment. A few times an hour, a job reads the new ones and asks [Mercury 2.5](https://docs.inceptionlabs.ai/get-started/models) to weave them into the story above.
+Leave a comment. Every 5 minutes, a job reads the new ones and asks [Mercury 2.5](https://docs.inceptionlabs.ai/get-started/models) to weave them into the story above.
 
 Limits, so this stays a story:
 
@@ -47,7 +47,7 @@ export function renderCanonLog(entries, { frozen, freezeAfter }) {
     "| Comment | Author | Result |",
     "| --- | --- | --- |",
     ...(rows.length
-      ? rows.map((entry) => `| \`${escapeCell(entry.id)}\` | ${escapeCell(entry.username ? `@${entry.username}` : "")} | ${escapeCell(entry.action)}: ${escapeCell(entry.reason)} |`)
+      ? rows.map((entry) => `| \`${escapeCell(entry.id)}\` | ${escapeCell(entry.name || entry.username || "")} | ${escapeCell(entry.action)}: ${escapeCell(entry.reason)} |`)
       : ["| | | waiting for the first comment |"]),
   ].join("\n");
   return `${header}\n${table}`;
@@ -117,6 +117,30 @@ export function commentUsername(comment) {
   return String(comment.user?.username || "").trim();
 }
 
+export function commentDisplayName(comment) {
+  const username = commentUsername(comment);
+  const name = String(comment.user?.name || comment.name || "").trim();
+  return name || username;
+}
+
+const MENTION = /(?<![A-Za-z0-9_])@([A-Za-z0-9_]{2,30})\b/g;
+
+export function stripMentions(text, namesByUsername = new Map()) {
+  MENTION.lastIndex = 0;
+  return String(text ?? "").replace(MENTION, (_match, username) => {
+    return namesByUsername.get(username.toLowerCase()) || username;
+  });
+}
+
+export function nameMapFrom(comments) {
+  const names = new Map();
+  for (const comment of comments) {
+    if (!comment.username) continue;
+    names.set(comment.username.toLowerCase(), comment.name || comment.username);
+  }
+  return names;
+}
+
 export function normalizeText(text) {
   return String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -126,6 +150,7 @@ export function prepareComment(comment) {
   return {
     id: commentId(comment),
     username: commentUsername(comment),
+    name: commentDisplayName(comment),
     createdAt: comment.created_at || "",
     text: text.plain,
     norm: normalizeText(text.plain),
@@ -211,14 +236,15 @@ export function fixtureComplete({ prose, comment, requiredTags }) {
   };
 }
 
-function stamp(now, username, id, action, reason, norm) {
+function stamp(now, comment, action, reason) {
   return {
-    id,
-    username,
+    id: comment.id,
+    username: comment.username,
+    name: comment.name || comment.username,
     action,
     reason,
     at: now.toISOString(),
-    norm,
+    norm: comment.norm,
   };
 }
 
@@ -257,7 +283,7 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
         return {
           action: "woven",
           reason: "kept a short reader comment",
-          prose: proseWithComment(prose, comment, requiredTags),
+          prose: stripMentions(proseWithComment(prose, comment, requiredTags), nameMapFrom([comment])),
         };
       }
       return { action: "rejected", reason, prose };
@@ -273,7 +299,11 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
       maxTagArgChars: config.maxTagArgChars,
     });
     if (problems.length === 0) {
-      return { action: "woven", reason, prose: String(result.prose).trim() };
+      return {
+        action: "woven",
+        reason,
+        prose: stripMentions(String(result.prose).trim(), nameMapFrom([comment])),
+      };
     }
     errors.push(problems.join("; "));
   }
@@ -286,7 +316,8 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
 
 export async function runOnce({ config, markdown, comments, ledger, complete, publish, now = new Date(), dryRun = false }) {
   const article = splitArticle(markdown);
-  let prose = article.prose;
+  const hadMentions = MENTION.test(markdown);
+  MENTION.lastIndex = 0;
   let nextLedger = ledger.articleId || !config.articleId
     ? ledger
     : { ...ledger, articleId: config.articleId };
@@ -294,6 +325,8 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     .map(prepareComment)
     .filter((comment) => comment.id)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+  const names = nameMapFrom(prepared);
+  let prose = stripMentions(article.prose, names);
 
   const results = [];
   let modelCalls = 0;
@@ -316,7 +349,7 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
       const reason = frozen ? "post is frozen" : problem;
       nextLedger = markAddressed(
         nextLedger,
-        stamp(now, comment.username, comment.id, action === "skipped" ? "skipped" : action, reason, comment.norm),
+        stamp(now, comment, action === "skipped" ? "skipped" : action, reason),
       );
       results.push({ id: comment.id, username: comment.username, action, reason });
       bookkeeping += 1;
@@ -334,7 +367,7 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     if (outcome.action === "woven") prose = outcome.prose;
     nextLedger = markAddressed(
       nextLedger,
-      stamp(now, comment.username, comment.id, outcome.action, outcome.reason, comment.norm),
+      stamp(now, comment, outcome.action, outcome.reason),
     );
     results.push({
       id: comment.id,
@@ -344,7 +377,15 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
     });
   }
 
-  const changed = results.length > 0;
+  prose = stripMentions(prose, names);
+  nextLedger = {
+    ...nextLedger,
+    entries: nextLedger.entries.map((entry) => ({
+      ...entry,
+      name: entry.name || names.get(String(entry.username || "").toLowerCase()) || entry.username,
+    })),
+  };
+  const changed = results.length > 0 || hadMentions;
   const nextFrozen = isFrozen(config, nextLedger, now);
   const nextMarkdown = renderArticle({
     frontMatter: article.frontMatter,
