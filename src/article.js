@@ -222,6 +222,23 @@ function stamp(now, username, id, action, reason, norm) {
   };
 }
 
+export function isCheckIn(comment, reason = "") {
+  const text = String(comment.text ?? "").trim();
+  if (text.length < 1 || text.length > 280) return false;
+  if (/https?:\/\//i.test(text)) return false;
+  if (/ignore (all |any |previous )|system prompt/i.test(text)) return false;
+  if (/^(mic\b|hi\b|hey\b|hello\b)|mic test|checking in/i.test(text)) return true;
+  return text.length <= 80 && /spam test|mic check/i.test(reason);
+}
+
+function proseWithComment(prose, comment, requiredTags) {
+  let next = `${String(prose ?? "").trim()}\n\n${comment.text.trim()}`;
+  for (const tag of requiredTags) {
+    if (!next.includes(tag)) next += `\n\n${tag}`;
+  }
+  return next.trim();
+}
+
 export async function weaveComment({ complete, prose, comment, requiredTags, config }) {
   const errors = [];
   for (let attempt = 1; attempt <= config.modelAttempts; attempt += 1) {
@@ -236,6 +253,13 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
     const decision = String(result?.decision ?? "").toLowerCase();
     const reason = String(result?.reason ?? "").trim().slice(0, 200) || "no reason given";
     if (decision === "reject") {
+      if (isCheckIn(comment, reason)) {
+        return {
+          action: "woven",
+          reason: "kept a short reader comment",
+          prose: proseWithComment(prose, comment, requiredTags),
+        };
+      }
       return { action: "rejected", reason, prose };
     }
     if (decision !== "weave") {

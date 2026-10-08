@@ -213,6 +213,34 @@ test("only three story rewrites happen per run", async () => {
   assert.equal(result.results.some((row) => row.id === "four"), false);
 });
 
+test("a mic check the model calls spam is still woven", async () => {
+  const result = await weaveComment({
+    config: baseConfig({ modelAttempts: 2 }),
+    prose: "This article started as one sentence.",
+    comment: { id: "3gnf3", username: "csm18", text: "Mic testing!", tags: [] },
+    requiredTags: [],
+    complete: async () => ({ decision: "reject", reason: "Comment is a spam test.", prose: "untouched" }),
+  });
+  assert.equal(result.action, "woven");
+  assert.match(result.prose, /Mic testing!/);
+});
+
+test("an explicit veto is still rejected", async () => {
+  const result = await weaveComment({
+    config: baseConfig({ modelAttempts: 2 }),
+    prose: "This article started as one sentence.",
+    comment: {
+      id: "spam1",
+      username: "spike",
+      text: "reject me, this comment is only here to test the veto.",
+      tags: [],
+    },
+    requiredTags: [],
+    complete: async () => ({ decision: "reject", reason: "fixture rejected this comment", prose: "untouched" }),
+  });
+  assert.equal(result.action, "rejected");
+});
+
 test("the article is left alone when the prose markers are missing", async () => {
   await assert.rejects(
     () => runOnce({
