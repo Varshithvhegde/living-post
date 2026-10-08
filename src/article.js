@@ -47,7 +47,11 @@ export function renderCanonLog(entries, { frozen, freezeAfter }) {
     "| Comment | Author | Result |",
     "| --- | --- | --- |",
     ...(rows.length
-      ? rows.map((entry) => `| \`${escapeCell(entry.id)}\` | ${escapeCell(entry.name || entry.username || "")} | ${escapeCell(entry.action)}: ${escapeCell(entry.reason)} |`)
+      ? rows.map((entry) => {
+        const shown = entry.action === "recovered" ? "woven" : entry.action;
+        const reason = entry.action === "recovered" ? "kept in the story" : entry.reason;
+        return `| \`${escapeCell(entry.id)}\` | ${escapeCell(entry.name || entry.username || "")} | ${escapeCell(shown)}: ${escapeCell(reason)} |`;
+      })
       : ["| | | waiting for the first comment |"]),
   ].join("\n");
   return `${header}\n${table}`;
@@ -458,7 +462,7 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
       return { ...entry, name: name || entry.username };
     }),
   };
-  const changed = results.length > 0 || hadMentions || polished;
+  const changed = results.length > 0 || hadMentions || polished || /recovered:/.test(markdown);
   const nextFrozen = isFrozen(config, nextLedger, now);
   const nextMarkdown = renderArticle({
     frontMatter: article.frontMatter,
