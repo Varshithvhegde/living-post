@@ -10,6 +10,16 @@
       "at": "2026-10-08T04:27:47.275Z",
       "norm": "mic testing!",
       "name": "csm"
+    },
+    {
+      "id": "3gnfk",
+      "username": "",
+      "action": "recovered",
+      "reason": "id was already in the article",
+      "at": "",
+      "norm": "",
+      "name": ""
     }
-  ]
+  ],
+  "polishAttempts": 0
 }
