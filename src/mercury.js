@@ -101,6 +101,7 @@ export function createMercury({ apiKey, baseUrl, model, fetchImpl, attempts, bas
             body: {
               model,
               temperature: 0.7,
+              reasoning_effort: "none",
               max_completion_tokens: 12000,
               messages,
               response_format: responseFormat,

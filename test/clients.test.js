@@ -73,6 +73,7 @@ test("comment pages stop when the next page repeats ids", async () => {
 
 test("Mercury falls back to json_object when json_schema is rejected", async () => {
   const formats = [];
+  const efforts = [];
   const mercury = createMercury({
     apiKey: "test-key",
     baseUrl: "https://api.inceptionlabs.ai/v1",
@@ -81,6 +82,7 @@ test("Mercury falls back to json_object when json_schema is rejected", async () 
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       formats.push(body.response_format.type);
+      efforts.push(body.reasoning_effort);
       if (body.response_format.type === "json_schema") {
         return jsonResponse({ error: { message: "schema unsupported" } }, { status: 400 });
       }
@@ -97,6 +99,7 @@ test("Mercury falls back to json_object when json_schema is rejected", async () 
     errors: [],
   });
   assert.deepEqual(formats, ["json_schema", "json_object"]);
+  assert.deepEqual(efforts, ["none", "none"]);
   assert.equal(result.decision, "weave");
   assert.equal(result.prose, "A story.");
 });
