@@ -215,7 +215,9 @@ export function storyProblems(prose) {
   }
   if (/\bthis article started\b/i.test(text)) errors.push("drop the framing sentence and write the scene");
   if (/\bin one voice\b/i.test(text)) errors.push("drop the explanation of the experiment");
-  if (/mic testing!/i.test(text)) errors.push('turn "mic testing!" into an action, do not paste it');
+  if (/\bit started with\b/i.test(text)) errors.push('do not open with "It started with"');
+  if (/\btesting a mic\b/i.test(text)) errors.push("show the microphone in the scene instead of saying someone was testing it");
+  if (/\bnoticed a man\b/i.test(text)) errors.push("do not say someone noticed the event; let the event happen");
   return errors;
 }
 
@@ -327,6 +329,10 @@ export async function weaveComment({ complete, prose, comment, requiredTags, con
       maxTagArgChars: config.maxTagArgChars,
     });
     if (problems.length === 0) {
+      if ((comment.beats?.length || 0) > 1 && !String(result.prose).includes("\n\n")) {
+        errors.push("put a blank line between paragraphs, one paragraph for each person");
+        continue;
+      }
       return {
         action: "woven",
         reason,
@@ -438,10 +444,19 @@ export async function runOnce({ config, markdown, comments, ledger, complete, pu
   prose = stripMentions(prose, names);
   nextLedger = {
     ...nextLedger,
-    entries: nextLedger.entries.map((entry) => ({
-      ...entry,
-      name: entry.name || names.get(String(entry.username || "").toLowerCase()) || entry.username,
-    })),
+    entries: nextLedger.entries.map((entry) => {
+      const comment = prepared.find((item) => item.id === entry.id);
+      const name = entry.name || comment?.name || names.get(String(entry.username || "").toLowerCase()) || entry.username;
+      if (entry.action === "recovered" && comment) {
+        return {
+          ...entry,
+          username: entry.username || comment.username,
+          name,
+          reason: "already in the story",
+        };
+      }
+      return { ...entry, name: name || entry.username };
+    }),
   };
   const changed = results.length > 0 || hadMentions || polished;
   const nextFrozen = isFrozen(config, nextLedger, now);

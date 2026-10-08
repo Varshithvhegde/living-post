@@ -17,8 +17,8 @@ prose is Markdown only. No HTML tags. No front matter. No HTML comments.
 Copy every required liquid tag into the prose unchanged. Do not invent liquid tags.
 The reason is one short sentence a reader can see in a log.
 
-Bad: "Monkey D Luffy added a note about a man who lived in the jungle."
-Good: "A man lived in the jungle, where the path stopped pretending it was a path. Monkey D Luffy had gone in far enough to know the trees kept a place for him."`;
+Bad: "Ada added a note about the rain."
+Good: "The rain arrived before Ada did. She stood in it until her coat took on the weight."`;
 
 export class ModelOutputError extends Error {
   constructor(message) {
@@ -45,7 +45,7 @@ export function buildMessages({ prose, comment, requiredTags, errors = [] }) {
           "Beats, in order. The name is a person in the scene. The words after the colon are what happens.",
           beats,
           "",
-          "Past tense. Two short paragraphs. Use every name once. No @ mentions.",
+          "Past tense. One paragraph per person, with a blank line between paragraphs. Use every name once, with the capitalization you were given. No @ mentions.",
           "Required liquid tags:",
           tags,
           correction,

@@ -79,5 +79,10 @@ export function renderLedgerComment(entries) {
 }
 
 export function publicEntries(entries) {
-  return entries.filter((entry) => entry.action === "woven" || entry.action === "rejected" || entry.action === "frozen");
+  return entries.filter((entry) => (
+    entry.action === "woven" ||
+    entry.action === "recovered" ||
+    entry.action === "rejected" ||
+    entry.action === "frozen"
+  ));
 }
